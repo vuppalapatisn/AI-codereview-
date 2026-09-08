@@ -35,7 +35,7 @@ public class GitHubWebhookController {
 
     @Value("${review.github.webhook-secret}")
     private String webhookSecret;
-
+    System.out.println(webhookSecret);
     private static final Set<String> RELEVANT_ACTIONS = Set.of("opened", "synchronize", "reopened", "ready_for_review");
 
     public GitHubWebhookController(GitHubSignatureVerifier signatureVerifier,

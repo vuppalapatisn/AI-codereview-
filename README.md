@@ -72,6 +72,42 @@ image to GHCR, and rolls it out to the `code-review` namespace via
 (swap in Kafka-consumer-lag scaling via KEDA for closer parity with a queue-
 depth-driven autoscaling policy).
 
+The `deploy` job is **opt-in**: a `preflight` job checks whether the
+`KUBE_CONFIG_BASE64` secret is set and `deploy` is gated on that output, so a
+clone with no cluster gets a green run with `deploy` skipped rather than a red
+one. (The check lives in its own job because GitHub does not expose the
+`secrets` context to a job-level `if:`.)
+
+To enable the rollout:
+
+1. Base64-encode a kubeconfig scoped to the `code-review` namespace — ideally a
+   ServiceAccount token with just `patch`/`get` on `deployments`, not your admin
+   context:
+
+   ```bash
+   base64 -w0 ~/.kube/config
+   ```
+
+2. Add it as the repository secret `KUBE_CONFIG_BASE64` under
+   **Settings -> Secrets and variables -> Actions -> New repository secret**.
+
+3. Provision the workloads once, since the rollout step uses
+   `kubectl set image` and expects the Deployment to already exist:
+
+   ```bash
+   kubectl create namespace code-review
+   kubectl apply -f k8s/deployment.yaml
+   ```
+
+   The pods also expect an `ai-code-review-secrets` Secret and an
+   `ai-code-review-config` ConfigMap (see `envFrom` in `k8s/deployment.yaml`)
+   carrying `GITHUB_APP_TOKEN`, `GITHUB_WEBHOOK_SECRET`, the provider API keys,
+   and `KAFKA_BOOTSTRAP_SERVERS`.
+
+The `deploy` job targets a `production` GitHub environment, which GitHub creates
+on first reference; add required reviewers there if you want the rollout gated
+on a manual approval.
+
 ## What's intentionally simplified
 
 - The acceptance evaluator's match logic is a stub - LinkedIn's real version

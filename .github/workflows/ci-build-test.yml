@@ -11,6 +11,27 @@ permissions:
   packages: write
 
 jobs:
+  # The `secrets` context is not available in a job-level `if:`, so the presence
+  # of the deploy credentials is resolved here into a plain output that `deploy`
+  # can gate on. Without this the deploy job fails on a fresh clone of the repo
+  # instead of being skipped.
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_enabled: ${{ steps.check.outputs.deploy_enabled }}
+    steps:
+      - name: Check for deploy credentials
+        id: check
+        env:
+          KUBE_CONFIG_BASE64: ${{ secrets.KUBE_CONFIG_BASE64 }}
+        run: |
+          if [ -n "$KUBE_CONFIG_BASE64" ]; then
+            echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::KUBE_CONFIG_BASE64 is not set. Build, test and image publish still run; see README 'Deploying' for how to enable rollout."
+          fi
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:
@@ -77,8 +98,11 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    needs: publish-image
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [preflight, publish-image]
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && needs.preflight.outputs.deploy_enabled == 'true'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -89,9 +113,16 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Configure kubeconfig
+        env:
+          # Read through env rather than interpolating the secret into the shell
+          # script, so a malformed value cannot break out of the command.
+          KUBE_CONFIG_BASE64: ${{ secrets.KUBE_CONFIG_BASE64 }}
         run: |
+          set -euo pipefail
           mkdir -p "$HOME/.kube"
-          echo "${{ secrets.KUBE_CONFIG_BASE64 }}" | base64 -d > "$HOME/.kube/config"
+          printf '%s' "$KUBE_CONFIG_BASE64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          kubectl config current-context
 
       - name: Roll out new image
         run: |

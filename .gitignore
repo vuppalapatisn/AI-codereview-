@@ -1,0 +1,29 @@
+target/
+
+# The Maven wrapper script + properties are committed on purpose (the Dockerfile
+# and README both call ./mvnw); only the downloaded distribution is ignored.
+.mvn/wrapper/maven-wrapper.jar
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets / env
+.env
+.env.local
+*.pem
+
+# Logs
+*.log
+logs/

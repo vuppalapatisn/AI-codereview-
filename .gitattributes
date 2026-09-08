@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Must stay LF-only: run by sh in the Dockerfile build stage and on CI runners.
+mvnw text eol=lf
+Dockerfile text eol=lf
+
+# Windows-only script.
+mvnw.cmd text eol=crlf
+
+*.jar binary
+*.png binary

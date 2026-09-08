@@ -1,0 +1,106 @@
+spring:
+  application:
+    name: ai-code-review-platform
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ai-code-review-workers
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 10
+    producer:
+      acks: all
+      retries: 5
+      properties:
+        enable.idempotence: true
+
+  cache:
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=10m
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+review:
+  queue:
+    topic: pr-review-requests
+    dlq-topic: pr-review-requests-dlq
+  github:
+    api-base-url: https://api.github.com
+    app-token: ${GITHUB_APP_TOKEN:}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+    max-inline-comments-per-pr: 25
+  conventions:
+    repo-config-path: ${CONVENTIONS_PATH:./conventions}
+    default-config: default-conventions.yml
+  aggregation:
+    convergence-min-agents: 2
+    unique-finding-confidence-threshold: 0.72
+    dedup-similarity-threshold: 0.85
+  agents:
+    - name: logic-reviewer
+      provider: anthropic
+      model: claude-sonnet-4-6
+      focus: LOGIC_CORRECTNESS
+      enabled: true
+    - name: security-reviewer
+      provider: anthropic
+      model: claude-opus-4-6
+      focus: SECURITY
+      enabled: true
+    - name: convention-reviewer
+      provider: openai
+      model: gpt-5.1
+      focus: STYLE_AND_CONVENTIONS
+      enabled: true
+  providers:
+    anthropic:
+      base-url: https://api.anthropic.com/v1/messages
+      api-key: ${ANTHROPIC_API_KEY:}
+      timeout-ms: 30000
+    openai:
+      base-url: https://api.openai.com/v1/chat/completions
+      api-key: ${OPENAI_API_KEY:}
+      timeout-ms: 30000
+
+resilience4j:
+  retry:
+    instances:
+      llmProvider:
+        max-attempts: 3
+        wait-duration: 500ms
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
+  circuitbreaker:
+    instances:
+      llmProvider:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+  ratelimiter:
+    instances:
+      llmProvider:
+        limit-for-period: 20
+        limit-refresh-period: 1s
+        timeout-duration: 5s
+
+logging:
+  level:
+    com.example.codereview: INFO

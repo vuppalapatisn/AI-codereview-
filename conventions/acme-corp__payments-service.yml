@@ -1,0 +1,9 @@
+repoSpecificRules:
+  - "All monetary amounts must use BigDecimal, never double or float."
+  - "Every write to the ledger table must occur inside a @Transactional boundary."
+  - "line-length: this repo enforces 140-character lines; do not flag 100-char wrapping."
+ignoredCategories:
+  - "import-ordering"
+highRiskPaths:
+  - "**/ledger/**"
+  - "**/payments/**"

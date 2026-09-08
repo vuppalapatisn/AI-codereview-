@@ -1,0 +1,8 @@
+orgWidePolicies:
+  - "Never approve code that logs secrets, API keys, or tokens in plaintext."
+  - "SQL queries must use parameterized statements; flag any string-concatenated queries."
+  - "All public REST endpoints must validate input and handle exceptions explicitly."
+  - "Prefer immutable data structures for anything shared across threads."
+repoSpecificRules: []
+ignoredCategories: []
+highRiskPaths: []

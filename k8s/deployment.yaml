@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-code-review-worker
+  namespace: code-review
+  labels:
+    app: ai-code-review-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-code-review-worker
+  template:
+    metadata:
+      labels:
+        app: ai-code-review-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/example/ai-code-review-platform:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: ai-code-review-secrets
+            - configMapRef:
+                name: ai-code-review-config
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      terminationGracePeriodSeconds: 45
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-code-review-worker
+  namespace: code-review
+spec:
+  selector:
+    app: ai-code-review-worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-code-review-worker-hpa
+  namespace: code-review
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ai-code-review-worker
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    # Scaling on Kafka consumer lag (via a Prometheus adapter / KEDA in
+    # practice) is what actually matches LinkedIn's description of scaling
+    # workers to queue depth rather than just CPU - included here as the
+    # metric to wire up once a custom-metrics adapter is available:
+    # - type: External
+    #   external:
+    #     metric:
+    #       name: kafka_consumergroup_lag
+    #       selector:
+    #         matchLabels:
+    #           topic: pr-review-requests
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "50"

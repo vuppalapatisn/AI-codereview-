@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+.idea/
+k8s/
+*.md
+.env*
+*.log

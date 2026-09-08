@@ -1,0 +1,50 @@
+name: Trigger AI Code Review
+
+# Drop this file into any consumer repository. It calls the review
+# platform's ingestion endpoint directly, which is useful for repos that
+# want review triggered from Actions rather than relying purely on
+# GitHub's webhook delivery to the platform's GitHub App.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  request-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for commit metadata)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Call review platform
+        env:
+          REVIEW_PLATFORM_URL: ${{ secrets.REVIEW_PLATFORM_URL }}
+          REVIEW_PLATFORM_TOKEN: ${{ secrets.REVIEW_PLATFORM_TOKEN }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg owner "${{ github.repository_owner }}" \
+            --arg repo "${{ github.event.repository.name }}" \
+            --argjson number "${{ github.event.pull_request.number }}" \
+            --arg headSha "${{ github.event.pull_request.head.sha }}" \
+            --arg baseSha "${{ github.event.pull_request.base.sha }}" \
+            '{action:"synchronize", pull_request:{number:$number, head:{sha:$headSha}, base:{sha:$baseSha}}, repository:{name:$repo, owner:{login:$owner}}}')
+
+          SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$REVIEW_PLATFORM_TOKEN" | sed 's/^.* //')
+
+          curl --fail --silent --show-error \
+            -X POST "$REVIEW_PLATFORM_URL/webhooks/github/pull-request" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: pull_request" \
+            -H "X-Hub-Signature-256: sha256=$SIGNATURE" \
+            -d "$PAYLOAD"
+
+      - name: Wait briefly, then check for posted review
+        run: |
+          echo "Review request submitted. The platform posts inline comments asynchronously"
+          echo "once its worker pods pick the event off the queue; no need to block CI on it."

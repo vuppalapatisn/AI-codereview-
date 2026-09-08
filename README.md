@@ -92,21 +92,56 @@ To enable the rollout:
    **Settings -> Secrets and variables -> Actions -> New repository secret**.
 
 3. Provision the workloads once, since the rollout step uses
-   `kubectl set image` and expects the Deployment to already exist:
+   `kubectl set image` and expects the Deployment to already exist. Config and
+   credentials must land *before* the Deployment, or the first pods boot with
+   empty values:
 
    ```bash
    kubectl create namespace code-review
+   kubectl apply -f k8s/configmap.yaml
+   kubectl create secret generic ai-code-review-secrets \
+     --namespace code-review \
+     --from-literal=GITHUB_APP_TOKEN="$GITHUB_APP_TOKEN" \
+     --from-literal=GITHUB_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
+     --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+     --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY"
    kubectl apply -f k8s/deployment.yaml
    ```
-
-   The pods also expect an `ai-code-review-secrets` Secret and an
-   `ai-code-review-config` ConfigMap (see `envFrom` in `k8s/deployment.yaml`)
-   carrying `GITHUB_APP_TOKEN`, `GITHUB_WEBHOOK_SECRET`, the provider API keys,
-   and `KAFKA_BOOTSTRAP_SERVERS`.
 
 The `deploy` job targets a `production` GitHub environment, which GitHub creates
 on first reference; add required reviewers there if you want the rollout gated
 on a manual approval.
+
+### Configuration reference
+
+Six environment variables are read, all via
+`src/main/resources/application.yml`. Two are plain config
+(`k8s/configmap.yaml`), four are credentials (`k8s/secret.example.yaml` is a
+committed template — create the real Secret imperatively as above, or via
+External Secrets / Vault, so values never enter git).
+
+| Variable | Source | Default | Effect if unset |
+| --- | --- | --- | --- |
+| `KAFKA_BOOTSTRAP_SERVERS` | ConfigMap | `localhost:9092` | Pods can't reach the broker; consumers retry-loop and no PR is ever reviewed |
+| `CONVENTIONS_PATH` | ConfigMap | `./conventions` | Resolves to the image's baked-in `/app/conventions`, so this is safe to omit |
+| `GITHUB_WEBHOOK_SECRET` | Secret | empty | **Hard stop.** `GitHubSignatureVerifier` fails closed on a blank secret, so every delivery is rejected 401 and the pipeline sits idle |
+| `GITHUB_APP_TOKEN` | Secret | empty | Diff fetches and review posts get 401 from the GitHub API |
+| `ANTHROPIC_API_KEY` | Secret | empty | The `logic-reviewer` and `security-reviewer` agents fail; their circuit breakers open |
+| `OPENAI_API_KEY` | Secret | empty | The `convention-reviewer` agent fails the same way |
+
+Agent failures are isolated — each agent catches its own provider errors and
+degrades to zero findings rather than failing the PR, and the orchestrator
+aggregates whatever succeeded. So a missing provider key quietly lowers review
+quality instead of erroring loudly. Alert on it:
+
+```promql
+rate(agent_run_total{outcome="failure"}[5m]) > 0
+```
+
+If you only have one provider, trim
+`review.agents` in `application.yml` instead of leaving dead agents configured;
+convergence needs at least `review.aggregation.convergence-min-agents` (default
+2) agents to mark anything convergent.
 
 ## What's intentionally simplified
 

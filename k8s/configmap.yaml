@@ -1,0 +1,23 @@
+# Non-secret runtime config for the worker pods, consumed via the
+# `ai-code-review-config` configMapRef in deployment.yaml.
+#
+#   kubectl apply -f k8s/configmap.yaml
+#
+# Secret material (tokens, API keys) does NOT belong here - see
+# k8s/secret.example.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-code-review-config
+  namespace: code-review
+data:
+  # In-cluster address of the Kafka bootstrap service. Adjust to wherever your
+  # broker actually lives - a Strimzi cluster named `pr-review` in this
+  # namespace would be pr-review-kafka-bootstrap:9092.
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.code-review.svc.cluster.local:9092"
+
+  # Where RepoConventionService looks for default-conventions.yml and the
+  # per-repo {owner}__{repo}.yml overrides. The Dockerfile bakes the repo's
+  # conventions/ directory in at this path; mount a volume here instead if you
+  # want repo owners to edit conventions without a rebuild.
+  CONVENTIONS_PATH: "/app/conventions"

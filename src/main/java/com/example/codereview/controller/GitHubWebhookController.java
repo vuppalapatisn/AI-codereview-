@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -35,8 +36,31 @@ public class GitHubWebhookController {
 
     @Value("${review.github.webhook-secret}")
     private String webhookSecret;
-    System.out.println(webhookSecret);
+
     private static final Set<String> RELEVANT_ACTIONS = Set.of("opened", "synchronize", "reopened", "ready_for_review");
+
+    /**
+     * Startup diagnostic for the most common misconfiguration: an unset
+     * webhook secret. {@link GitHubSignatureVerifier} fails closed on a blank
+     * value, so every delivery would be rejected with a 401 while the pod
+     * otherwise looks perfectly healthy - worth one loud line at boot.
+     *
+     * Logs only whether the secret is present and how long it is. Never the
+     * value: org-wide policy (conventions/default-conventions.yml) forbids
+     * logging secrets in plaintext, and pod logs are typically shipped to a
+     * cluster-wide aggregator that far more people can read than can read the
+     * Secret itself. Length alone is enough to catch a truncated or
+     * accidentally-quoted value.
+     */
+    @PostConstruct
+    void logWebhookSecretStatus() {
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            log.error("review.github.webhook-secret is not set - every webhook delivery will be "
+                    + "rejected with 401. Set GITHUB_WEBHOOK_SECRET (see k8s/secret.example.yaml).");
+        } else {
+            log.info("Webhook signature verification enabled (secret present, {} chars)", webhookSecret.length());
+        }
+    }
 
     public GitHubWebhookController(GitHubSignatureVerifier signatureVerifier,
                                     ReviewRequestPublisher publisher,
